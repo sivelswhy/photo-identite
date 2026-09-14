@@ -411,11 +411,16 @@ async function capture(){
   const out=document.createElement("canvas");out.width=N.PX_W;out.height=N.PX_H;
   const o=out.getContext("2d");o.imageSmoothingQuality="high";o.fillStyle="#fff";o.fillRect(0,0,N.PX_W,N.PX_H);
   if(!m.none){
-    const g=m.g,cropH=g.headH/N.headTarget,cropW=cropH*35/45;
+    const g=m.g,cropH=g.headH/N.headTarget,cropW=cropH*35/45,k=N.PX_W/cropW;
+    // centre du recadrage pris sur l'axe median de la tete, a mi-hauteur du cadre,
+    // puis rotation inverse du roulis : la ligne des yeux devient horizontale
+    const cX=g.crown.x+g.v.x*cropH*.5, cY=g.crown.y+g.v.y*cropH*.5;
     o.save();
-    // le recadrage redresse le roulis residuel autour du milieu des yeux
-    o.translate(N.PX_W/2,0);o.rotate(-g.roll*Math.PI/180);o.translate(-N.PX_W/2,0);
-    o.drawImage(full,g.cx-cropW/2,g.crown.y-cropH*N.topTarget,cropW,cropH,0,0,N.PX_W,N.PX_H);
+    o.translate(N.PX_W/2,N.PX_H/2);
+    o.rotate(-g.roll*Math.PI/180);
+    o.scale(k,k);
+    o.translate(-cX,-cY);
+    o.drawImage(full,0,0);
     o.restore();
   }else{o.drawImage(full,box.x*sw,box.y*sh,box.w*sw,box.h*sh,0,0,N.PX_W,N.PX_H);}
   stream.getTracks().forEach(t=>t.stop());
