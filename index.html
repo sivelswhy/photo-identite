@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Photo d'identité — cadrage et contrôle</title>
+<style>
+  :root{--ink:#12161c;--paper:#eef0ec;--ok:#1f7a4d;--warn:#b8531a;--bad:#a3232b;--r:4px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--paper);font-family:"Helvetica Neue",Inter,system-ui,sans-serif;font-size:15px;line-height:1.45;display:flex;flex-direction:column;overscroll-behavior:none}
+  header{padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #232a33}
+  header h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header span{font-size:12px;color:#7c8794}
+  #scene{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+  video,#shot{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  #shot{display:none;object-fit:contain;background:#000}
+  #guides{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #verdict{position:absolute;left:0;right:0;top:0;padding:8px 12px;font-size:13px;font-weight:600;background:rgba(18,22,28,.72);backdrop-filter:blur(6px);display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#666;flex:none}
+  .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+  #checks{position:absolute;left:0;right:0;bottom:0;padding:8px 10px 10px;background:linear-gradient(to top,rgba(18,22,28,.92),rgba(18,22,28,0));display:flex;flex-wrap:wrap;gap:5px}
+  .chip{font-size:11.5px;padding:3px 7px;border-radius:var(--r);border:1px solid #3a434e;color:#aab3bd;background:rgba(0,0,0,.35);white-space:nowrap}
+  .chip.ok{border-color:#1f7a4d;color:#9fe0bd}
+  .chip.bad{border-color:#a3232b;color:#ffb3b6}
+  .chip.warn{border-color:#b8531a;color:#ffcda6}
+  #bar{padding:10px 12px;padding-bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center;border-top:1px solid #232a33;background:#12161c}
+  button{font:inherit;font-size:14px;font-weight:500;border:1px solid #3a434e;background:#1b212a;color:var(--paper);padding:11px 14px;border-radius:var(--r);cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.4}
+  button.primary{background:var(--paper);color:var(--ink);border-color:var(--paper);flex:1}
+  button.ghost{background:transparent}
+  #timerBadge{font-variant-numeric:tabular-nums;font-size:13px;color:#7c8794;min-width:34px}
+  #report{display:none;padding:14px 14px 40px;overflow:auto;background:var(--ink)}
+  #report h2{font-size:15px;margin:14px 0 6px}
+  #report h2:first-of-type{margin-top:0}
+  .row{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #232a33;font-size:13.5px}
+  .row em{font-style:normal;color:#7c8794;font-size:12px;display:block}
+  .val{margin-left:auto;color:#7c8794;font-size:12px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  #crops{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+  #crops canvas{width:130px;height:auto;background:#fff;border:1px solid #3a434e}
+  #crops .meta{font-size:12px;color:#7c8794;margin-top:4px}
+  .mini{font-size:12px;color:#7c8794;margin:10px 0 0}
+  .hidden{display:none!important}
+  #loader{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(18,22,28,.88);backdrop-filter:blur(4px);text-align:center;padding:24px}
+  #loader.done{display:none}
+  #loader p{margin:0;font-size:13.5px;color:#aab3bd;max-width:26ch}
+  #loader strong{display:block;font-size:14.5px;color:var(--paper);font-weight:600;margin-bottom:4px}
+  .ring{width:34px;height:34px;border-radius:50%;border:2px solid #2b333d;border-top-color:var(--paper);animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.ring{animation-duration:2.4s}}
+  #loadbar{width:160px;height:2px;background:#2b333d;overflow:hidden}
+  #loadfill{height:100%;width:0;background:var(--paper);transition:width .3s ease}
+</style>
+</head>
+<body>
+<header><h1>Photo d'identité</h1><span>format 35 × 45 mm</span></header>
+
+<div id="scene">
+  <video id="cam" playsinline autoplay muted></video>
+  <img id="shot" alt="">
+  <svg id="guides" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+  <div id="verdict"><span class="dot" id="vdot"></span><b id="vtext">Préparation…</b></div>
+  <div id="checks"></div>
+  <div id="loader">
+    <div class="ring"></div>
+    <p><strong>Chargement du modèle d'analyse</strong>Environ 3 Mo. Le contrôle démarre dès la fin du téléchargement.</p>
+    <div id="loadbar"><div id="loadfill"></div></div>
+  </div>
+</div>
+
+<div id="bar">
+  <button id="btnStart" class="ghost" disabled>Activer la caméra</button>
+  <button id="btnFlip" class="ghost hidden">Objectif</button>
+  <button id="btnShoot" class="primary hidden">Prendre la photo</button>
+  <span id="timerBadge"></span>
+  <button id="btnRetake" class="ghost hidden">Refaire</button>
+</div>
+
+<div id="report"></div>
+
+<script type="module">
+import {FilesetResolver, FaceLandmarker} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+/* ========= Normes ICAO 9303 / ANTS, photo 35 x 45 mm =========
+   hauteur menton-vertex 32-36 mm, yeux entre 50 et 69 % depuis le bas,
+   marge au-dessus du crane 2-5 mm, fond uni et clair, expression neutre. */
+const N={
+  headMin:.711,headMax:.800,headTarget:.755,   // fraction de la hauteur du cadre
+  topMin:.035,topMax:.111,topTarget:.067,
+  eyeFromBottomMin:.50,eyeFromBottomMax:.69,
+  centerTol:.04,
+  rollTol:5,yawTol:5,pitchTol:6,
+  earMin:.19,               // ouverture des paupieres
+  gazeTol:.14,              // decentrage de l'iris
+  marMax:.075,              // bouche fermee
+  smileMax:.30,
+  sharpMin:14,              // laplacien normalise
+  motionMax:3.2,
+  specularMax:.012,         // reflets sur lunettes
+  bgResidMax:9,             // ecart au plan de fond ajuste
+  bgEdgeMax:.045,           // densite de contours du fond
+  bgLumMin:125,bgSatMax:38,
+  bgShadowMax:16,
+  faceClipMax:.02,faceP50Min:95,faceP50Max:200,
+  lightAsymMax:18,
+  minSourceW:413,
+  distMin:.85,              // metres, au-dela duquel la distorsion est acceptable
+  CROWN_K:.24,              // vertex = trichion + 0.24 x (menton-trichion), anthropometrie
+  VFOV:52,HEAD_M:.232,
+  PX_W:413,PX_H:531
+};
+
+const $=s=>document.querySelector(s);
+const cam=$("#cam"),shot=$("#shot"),guides=$("#guides"),checksEl=$("#checks"),
+      vdot=$("#vdot"),vtext=$("#vtext"),report=$("#report"),loader=$("#loader"),loadfill=$("#loadfill");
+let landmarker=null,stream=null,track=null,facing="environment",running=false,lastT=-1;
+let stable=0,countdown=null,prevSmall=null,prevStates={};
+const hist=new Map();
+
+/* ---------- grille ---------- */
+function cropBoxInView(){
+  const vw=$("#scene").clientWidth,vh=$("#scene").clientHeight,ar=35/45;
+  let h=vh*.88,w=h*ar; if(w>vw*.9){w=vw*.9;h=w/ar;}
+  return {x:(vw-w)/2/vw,y:(vh-h)/2/vh,w:w/vw,h:h/vh};
+}
+function drawGuides(){
+  const b=cropBoxInView(),L=b.x*1000,T=b.y*1000,W=b.w*1000,H=b.h*1000;
+  const crown=T+H*N.topTarget,chin=crown+H*N.headTarget,eye=T+H*(1-.593),cx=L+W/2,
+        rx=H*N.headTarget*.36;
+  guides.innerHTML=`<defs><mask id="m"><rect width="1000" height="1000" fill="#fff"/><rect x="${L}" y="${T}" width="${W}" height="${H}" fill="#000"/></mask></defs>
+  <rect width="1000" height="1000" fill="rgba(10,12,16,.55)" mask="url(#m)"/>
+  <rect x="${L}" y="${T}" width="${W}" height="${H}" fill="none" stroke="#eef0ec" stroke-width="2"/>
+  <line x1="${L}" y1="${crown}" x2="${L+W}" y2="${crown}" stroke="#9fe0bd" stroke-width="1.2" stroke-dasharray="6 6"/>
+  <line x1="${L}" y1="${chin}" x2="${L+W}" y2="${chin}" stroke="#9fe0bd" stroke-width="1.2" stroke-dasharray="6 6"/>
+  <line x1="${L}" y1="${eye}" x2="${L+W}" y2="${eye}" stroke="#ffd28a" stroke-width="1.6"/>
+  <line x1="${cx}" y1="${T}" x2="${cx}" y2="${T+H}" stroke="#eef0ec" stroke-width=".8" opacity=".45"/>
+  <ellipse cx="${cx}" cy="${(crown+chin)/2}" rx="${rx}" ry="${(chin-crown)/2}" fill="none" stroke="#eef0ec" stroke-width="1" opacity=".5" stroke-dasharray="4 7"/>
+  <text x="${L+6}" y="${crown-6}" fill="#9fe0bd" font-size="15" font-family="sans-serif">sommet du crane</text>
+  <text x="${L+6}" y="${chin+18}" fill="#9fe0bd" font-size="15" font-family="sans-serif">menton</text>
+  <text x="${L+6}" y="${eye-6}" fill="#ffd28a" font-size="15" font-family="sans-serif">ligne des yeux</text>`;
+}
+addEventListener("resize",()=>{if(running)drawGuides()});
+
+/* ---------- camera ---------- */
+async function start(){
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:2560},height:{ideal:2560}},audio:false});
+    track=stream.getVideoTracks()[0];
+    try{await track.applyConstraints({advanced:[{focusMode:"continuous"},{whiteBalanceMode:"continuous"}]});}catch(e){}
+    cam.srcObject=stream;await cam.play();
+    $("#btnStart").classList.add("hidden");$("#btnShoot").classList.remove("hidden");$("#btnFlip").classList.remove("hidden");
+    running=true;drawGuides();loop();
+  }catch(e){vtext.textContent="Camera inaccessible. Verifiez l'autorisation dans Reglages, Safari, Camera.";vdot.className="dot bad";}
+}
+$("#btnStart").onclick=start;
+$("#btnFlip").onclick=()=>{facing=facing==="environment"?"user":"environment";start();};
+
+/* ---------- modele ---------- */
+function setProgress(p){loadfill.style.width=Math.min(100,Math.round(p*100))+"%";}
+function endLoader(msg,state){loader.classList.add("done");$("#btnStart").disabled=false;if(msg){vtext.textContent=msg;vdot.className="dot "+state;}}
+async function loadModel(){
+  setProgress(.08);
+  const files=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  setProgress(.25);
+  const r=await fetch("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task");
+  if(!r.ok)throw new Error("model");
+  const total=+r.headers.get("content-length")||0;const chunks=[];let got=0;
+  const rd=r.body.getReader();
+  for(;;){const{done,value}=await rd.read();if(done)break;chunks.push(value);got+=value.length;setProgress(total?.25+.65*(got/total):.6);}
+  const buf=new Uint8Array(got);let off=0;for(const c of chunks){buf.set(c,off);off+=c.length;}
+  landmarker=await FaceLandmarker.createFromOptions(files,{
+    baseOptions:{modelAssetBuffer:buf,delegate:"GPU"},runningMode:"VIDEO",numFaces:2,
+    outputFaceBlendshapes:true,outputFacialTransformationMatrixes:true,minFaceDetectionConfidence:.5,minTrackingConfidence:.5});
+  setProgress(1);setTimeout(()=>endLoader("Modele pret. Activez la camera.","ok"),250);
+}
+loadModel().catch(()=>{landmarker="failed";endLoader("Modele indisponible. Cadrage manuel a l'aide de la grille.","warn");});
+
+/* ---------- geometrie, repere tete ---------- */
+const L={chin:152,fore:10,nose:1,subnasal:2,lEyeOut:33,lEyeIn:133,lLidUp:159,lLidLo:145,
+  rEyeOut:263,rEyeIn:362,rLidUp:386,rLidLo:374,cheekL:234,cheekR:454,
+  mUp:13,mLo:14,mL:61,mR:291,irisL:468,irisR:473};
+function geom(lm,W,H){
+  const p=i=>({x:lm[i].x*W,y:lm[i].y*H});
+  const eL={o:p(L.lEyeOut),i:p(L.lEyeIn),u:p(L.lLidUp),d:p(L.lLidLo)};
+  const eR={o:p(L.rEyeOut),i:p(L.rEyeIn),u:p(L.rLidUp),d:p(L.rLidLo)};
+  const cL={x:(eL.o.x+eL.i.x)/2,y:(eL.o.y+eL.i.y)/2},cR={x:(eR.o.x+eR.i.x)/2,y:(eR.o.y+eR.i.y)/2};
+  const a=Math.atan2(cR.y-cL.y,cR.x-cL.x);               // roulis
+  const v={x:-Math.sin(a),y:Math.cos(a)};                 // axe vertical de la tete
+  const chin=p(L.chin),fore=p(L.fore);
+  const proj=(A,B)=>(B.x-A.x)*v.x+(B.y-A.y)*v.y;
+  const faceH=proj(fore,chin);                            // trichion -> menton, corrige du roulis
+  const crown={x:fore.x-v.x*N.CROWN_K*faceH,y:fore.y-v.y*N.CROWN_K*faceH};
+  const headH=faceH*(1+N.CROWN_K);
+  const eyeMid={x:(cL.x+cR.x)/2,y:(cL.y+cR.y)/2};
+  const axis={x:(eyeMid.x+chin.x)/2,y:(eyeMid.y+chin.y)/2};
+  const ipd=Math.hypot(cR.x-cL.x,cR.y-cL.y);
+  const ear=e=>Math.hypot(e.u.x-e.d.x,e.u.y-e.d.y)/Math.max(1,Math.hypot(e.o.x-e.i.x,e.o.y-e.i.y));
+  const mUp=p(L.mUp),mLo=p(L.mLo),mL_=p(L.mL),mR_=p(L.mR);
+  const mar=Math.hypot(mUp.x-mLo.x,mUp.y-mLo.y)/Math.max(1,Math.hypot(mL_.x-mR_.x,mL_.y-mR_.y));
+  let gaze=0;
+  if(lm.length>=478){
+    const g=(iris,e,c)=>{const w=Math.hypot(e.o.x-e.i.x,e.o.y-e.i.y)||1;return Math.hypot(iris.x-c.x,iris.y-c.y)/w;};
+    gaze=(g(p(L.irisL),eL,cL)+g(p(L.irisR),eR,cR))/2;
+  }
+  return {chin,fore,crown,headH,faceH,eyeMid,cL,cR,ipd,roll:a*180/Math.PI,
+    cx:axis.x,faceW:Math.abs(p(L.cheekR).x-p(L.cheekL).x),
+    ear:(ear(eL)+ear(eR))/2,mar,gaze,v};
+}
+function euler(mat){const m=mat.data,r00=m[0],r10=m[1],r20=m[2],r21=m[6],r22=m[10];
+  return {pitch:Math.atan2(r21,r22)*180/Math.PI,yaw:Math.atan2(-r20,Math.hypot(r21,r22))*180/Math.PI};}
+
+/* ---------- photometrie ---------- */
+const work=document.createElement("canvas"),wctx=work.getContext("2d",{willReadFrequently:true});
+function photometry(src,sw,sh,g,live){
+  const w=320,h=Math.max(2,Math.round(sh/sw*320));
+  work.width=w;work.height=h;wctx.drawImage(src,0,0,w,h);
+  const d=wctx.getImageData(0,0,w,h).data,n=w*h;
+  const gr=new Float32Array(n),sat=new Float32Array(n);
+  for(let i=0;i<n;i++){const r=d[i*4],gg=d[i*4+1],b=d[i*4+2];
+    gr[i]=.299*r+.587*gg+.114*b;sat[i]=Math.max(r,gg,b)-Math.min(r,gg,b);}
+  const s=w/sw;
+  const fx0=Math.max(1,(g.cx-g.faceW*.55)*s|0),fx1=Math.min(w-1,(g.cx+g.faceW*.55)*s|0),
+        fy0=Math.max(1,g.crown.y*s|0),fy1=Math.min(h-1,g.chin.y*s|0);
+  const face=[],ll=[],rl=[],mid=(fx0+fx1)/2;let lap=[];
+  for(let y=fy0;y<fy1;y++)for(let x=fx0;x<fx1;x++){const i=y*w+x;face.push(gr[i]);(x<mid?ll:rl).push(gr[i]);}
+  // nettete mesuree sur la bande des yeux, zone de detail la plus fiable
+  const ey0=Math.max(1,(g.eyeMid.y-g.ipd*.35)*s|0),ey1=Math.min(h-1,(g.eyeMid.y+g.ipd*.35)*s|0);
+  const ex0=Math.max(1,(g.cL.x-g.ipd*.5)*s|0),ex1=Math.min(w-1,(g.cR.x+g.ipd*.5)*s|0);
+  let spec=0,eyeN=0;
+  for(let y=ey0;y<ey1;y++)for(let x=ex0;x<ex1;x++){const i=y*w+x;
+    lap.push(4*gr[i]-gr[i-1]-gr[i+1]-gr[i-w]-gr[i+w]);
+    eyeN++;if(gr[i]>244&&sat[i]<40)spec++;}
+  // fond : hors tete et hors epaules
+  const bx=[],by=[],bz=[];let edge=0,bgN=0,bl=[],br=[],bsat=[];
+  for(let y=1;y<h*.8;y++)for(let x=1;x<w-1;x++){
+    if(x>fx0-8&&x<fx1+8&&y>fy0-8)continue;
+    const i=y*w+x;bx.push(x);by.push(y);bz.push(gr[i]);bsat.push(sat[i]);
+    (x<w/2?bl:br).push(gr[i]);
+    const gx=gr[i+1]-gr[i-1],gy=gr[i+w]-gr[i-w];
+    bgN++;if(Math.hypot(gx,gy)>26)edge++;
+  }
+  const avg=a=>a.length?a.reduce((p,c)=>p+c,0)/a.length:0;
+  const std=a=>{const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)**2)));};
+  const pct=(a,q)=>{if(!a.length)return 0;const b=[...a].sort((x,y)=>x-y);return b[Math.min(b.length-1,Math.round(q*(b.length-1)))];};
+  // plan de fond ajuste par moindres carres : tolere un degrade regulier, penalise un motif
+  let resid=0;
+  if(bz.length>30){
+    let Sx=0,Sy=0,S1=bz.length,Sxx=0,Syy=0,Sxy=0,Sz=0,Sxz=0,Syz=0;
+    for(let k=0;k<bz.length;k++){const X=bx[k],Y=by[k],Z=bz[k];
+      Sx+=X;Sy+=Y;Sxx+=X*X;Syy+=Y*Y;Sxy+=X*Y;Sz+=Z;Sxz+=X*Z;Syz+=Y*Z;}
+    const M=[[Sxx,Sxy,Sx],[Sxy,Syy,Sy],[Sx,Sy,S1]],V=[Sxz,Syz,Sz];
+    const det=M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])-M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])+M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]);
+    if(Math.abs(det)>1e-6){
+      const sol=k=>{const A=M.map(r=>[...r]);for(let i=0;i<3;i++)A[i][k]=V[i];
+        return (A[0][0]*(A[1][1]*A[2][2]-A[1][2]*A[2][1])-A[0][1]*(A[1][0]*A[2][2]-A[1][2]*A[2][0])+A[0][2]*(A[1][0]*A[2][1]-A[1][1]*A[2][0]))/det;};
+      const a1=sol(0),b1=sol(1),c1=sol(2);
+      let acc=0;for(let k=0;k<bz.length;k++)acc+=(bz[k]-(a1*bx[k]+b1*by[k]+c1))**2;
+      resid=Math.sqrt(acc/bz.length);
+    } else resid=std(bz);
+  }
+  // bouge : ecart entre deux images successives
+  let motion=0;
+  if(live){
+    const small=new Float32Array(1600);
+    for(let y=0;y<40;y++)for(let x=0;x<40;x++)small[y*40+x]=gr[((y*h/40)|0)*w+((x*w/40)|0)];
+    if(prevSmall){let a=0;for(let i=0;i<1600;i++)a+=Math.abs(small[i]-prevSmall[i]);motion=a/1600;}
+    prevSmall=small;
+  }
+  const fm=avg(face);
+  return {
+    sharp:lap.length?(std(lap)**2)/Math.max(30,fm):0,
+    faceP50:pct(face,.5),faceClip:face.filter(v=>v>250||v<6).length/Math.max(1,face.length),
+    lightAsym:Math.abs(avg(ll)-avg(rl)),
+    bgLum:pct(bz,.5),bgResid:resid,bgEdge:bgN?edge/bgN:1,bgSat:avg(bsat),
+    bgShadow:Math.abs(avg(bl)-avg(br)),
+    specular:eyeN?spec/eyeN:0,motion
+  };
+}
+
+/* ---------- mesures ---------- */
+function measure(src,sw,sh,res,box,live){
+  if(!res||!res.faceLandmarks.length)return {none:true,faces:0};
+  const g=geom(res.faceLandmarks[0],sw,sh);
+  const bs=Object.fromEntries((res.faceBlendshapes[0]?.categories||[]).map(c=>[c.categoryName,c.score]));
+  const e=res.facialTransformationMatrixes?.[0]?euler(res.facialTransformationMatrixes[0]):{yaw:0,pitch:0};
+  const B={x:box.x*sw,y:box.y*sh,w:box.w*sw,h:box.h*sh};
+  const pm=photometry(src,sw,sh,g,live);
+  const cropH=g.headH/N.headTarget;
+  return {none:false,faces:res.faceLandmarks.length,g,
+    ratio:g.headH/B.h,
+    offX:(g.cx-(B.x+B.w/2))/B.w,
+    topM:((g.crown.y-B.y)/B.h),
+    eyeBot:(B.y+B.h-g.eyeMid.y)/B.h,
+    roll:g.roll,yaw:e.yaw,pitch:e.pitch,
+    ear:g.ear,gaze:g.gaze,mar:g.mar,
+    smile:Math.max(bs.mouthSmileLeft||0,bs.mouthSmileRight||0,bs.mouthPucker||0),
+    blink:Math.max(bs.eyeBlinkLeft||0,bs.eyeBlinkRight||0),
+    srcW:cropH*35/45,
+    dist:(N.HEAD_M*sh)/(2*Math.tan(N.VFOV*Math.PI/360)*Math.max(1,g.headH)),
+    ...pm};
+}
+function smooth(m){ // mediane glissante sur 5 images, supprime le clignotement des verdicts
+  const keys=["ratio","offX","topM","eyeBot","roll","yaw","pitch","ear","gaze","mar","smile","sharp",
+    "faceP50","faceClip","lightAsym","bgLum","bgResid","bgEdge","bgSat","bgShadow","specular","motion","dist"];
+  const o={...m};
+  for(const k of keys){
+    if(typeof m[k]!=="number")continue;
+    const a=hist.get(k)||[];a.push(m[k]);if(a.length>5)a.shift();hist.set(k,a);
+    const b=[...a].sort((x,y)=>x-y);o[k]=b[b.length>>1];
+  }
+  return o;
+}
+
+/* ---------- jugement ---------- */
+function judge(m,live){
+  const c=[],hy=id=>live&&prevStates[id]==="ok"?1.18:1;   // hysteresis
+  const add=(id,label,state,advice,val)=>{c.push({id,label,state,advice,val});if(live)prevStates[id]=state;};
+  if(m.none){add("face","Visage detecte","bad","Aucun visage dans le cadre","");return c;}
+  add("solo","Une seule personne",m.faces>1?"bad":"ok","Plusieurs visages dans le champ",m.faces);
+
+  const band=(id,label,v,lo,hi,advLo,advHi,fmt)=>{
+    const k=hy(id),mid=(lo+hi)/2,half=(hi-lo)/2*k;
+    const ok=v>=mid-half&&v<=mid+half;
+    add(id,label,ok?"ok":"bad",v<mid?advLo:advHi,fmt(v));
+  };
+  band("size","Hauteur du visage",m.ratio,N.headMin,N.headMax,"Approchez-vous","Reculez",v=>(v*45).toFixed(1)+" mm");
+  band("center","Centrage horizontal",m.offX,-N.centerTol,N.centerTol,"Decalez vers la droite","Decalez vers la gauche",v=>(v*100).toFixed(1)+" %");
+  band("top","Marge au-dessus de la tete",m.topM,N.topMin,N.topMax,"Abaissez le telephone","Relevez le telephone",v=>(v*45).toFixed(1)+" mm");
+  band("eyeline","Hauteur des yeux",m.eyeBot,N.eyeFromBottomMin,N.eyeFromBottomMax,"Yeux trop bas dans le cadre","Yeux trop hauts dans le cadre",v=>(v*100).toFixed(0)+" %");
+  band("roll","Tete droite",m.roll,-N.rollTol,N.rollTol,"Redressez la tete","Redressez la tete",v=>v.toFixed(1)+" deg");
+  band("yaw","Visage de face",m.yaw,-N.yawTol,N.yawTol,"Tournez la tete vers la droite","Tournez la tete vers la gauche",v=>v.toFixed(1)+" deg");
+  band("pitch","Menton neutre",m.pitch,-N.pitchTol,N.pitchTol,"Relevez legerement le menton","Baissez legerement le menton",v=>v.toFixed(1)+" deg");
+
+  add("eyes","Yeux ouverts",(m.ear>=N.earMin/hy("eyes")&&m.blink<.5)?"ok":"bad","Ouvrez bien les yeux",m.ear.toFixed(3));
+  add("gaze","Regard vers l'objectif",m.gaze<=N.gazeTol*hy("gaze")?"ok":"bad","Fixez l'objectif, pas l'ecran",m.gaze.toFixed(3));
+  add("mouth","Bouche fermee",m.mar<=N.marMax*hy("mouth")?"ok":"bad","Fermez la bouche",m.mar.toFixed(3));
+  add("neutral","Expression neutre",m.smile<=N.smileMax*hy("neutral")?"ok":"bad","Ne souriez pas",m.smile.toFixed(2));
+
+  add("sharp","Nettete",m.sharp>=N.sharpMin/hy("sharp")?"ok":"bad","Mise au point insuffisante",Math.round(m.sharp));
+  if(live)add("motion","Stabilite",m.motion<=N.motionMax*hy("motion")?"ok":"bad","Ne bougez plus",m.motion.toFixed(1));
+  add("specular","Reflets sur les verres",m.specular<=N.specularMax?"ok":"warn","Inclinez les lunettes ou retirez-les",(m.specular*100).toFixed(1)+" %");
+
+  add("bgunif","Fond uniforme",m.bgResid<=N.bgResidMax*hy("bgunif")?"ok":"bad","Fond non uniforme, cherchez un mur nu",Math.round(m.bgResid));
+  add("bgedge","Fond sans motif",m.bgEdge<=N.bgEdgeMax*hy("bgedge")?"ok":"bad","Objets ou motifs derriere le sujet",(m.bgEdge*100).toFixed(1)+" %");
+  add("bglum","Fond clair",m.bgLum>=N.bgLumMin?"ok":"bad","Fond trop sombre",Math.round(m.bgLum));
+  add("bgsat","Fond neutre",m.bgSat<=N.bgSatMax?"ok":"warn","Fond trop colore",Math.round(m.bgSat));
+  add("bgshadow","Sans ombre portee",m.bgShadow<=N.bgShadowMax?"ok":"warn","Ombre sur le fond, eloignez le sujet du mur",Math.round(m.bgShadow));
+
+  add("expo","Exposition du visage",(m.faceP50>=N.faceP50Min&&m.faceP50<=N.faceP50Max)?"ok":"warn",m.faceP50<N.faceP50Min?"Visage trop sombre":"Visage surexpose",Math.round(m.faceP50));
+  add("clip","Details preserves",m.faceClip<=N.faceClipMax?"ok":"warn","Zones brulees ou bouchees sur le visage",(m.faceClip*100).toFixed(1)+" %");
+  add("light","Eclairage regulier",m.lightAsym<=N.lightAsymMax?"ok":"warn","Lumiere laterale, placez-vous face a la source",Math.round(m.lightAsym));
+
+  add("res","Resolution suffisante",m.srcW>=N.minSourceW?"ok":"warn","La zone utile sera agrandie, qualite reduite",Math.round(m.srcW)+" px");
+  add("dist","Distance de prise de vue",m.dist>=N.distMin?"ok":"warn","Trop pres, le visage est deforme, reculez et zoomez",m.dist.toFixed(2)+" m");
+  return c;
+}
+
+/* ---------- boucle ---------- */
+function videoMapping(){
+  const sw=cam.videoWidth||1,sh=cam.videoHeight||1,vw=$("#scene").clientWidth,vh=$("#scene").clientHeight;
+  const sc=Math.max(vw/sw,vh/sh),dw=sw*sc,dh=sh*sc,ox=(vw-dw)/2,oy=(vh-dh)/2,b=cropBoxInView();
+  return {sw,sh,box:{x:(b.x*vw-ox)/dw,y:(b.y*vh-oy)/dh,w:b.w*vw/dw,h:b.h*vh/dh}};
+}
+function loop(){
+  if(!running)return requestAnimationFrame(loop);
+  if(landmarker&&landmarker!=="failed"&&cam.readyState>=2&&cam.currentTime!==lastT){
+    lastT=cam.currentTime;
+    const res=landmarker.detectForVideo(cam,performance.now());
+    const{sw,sh,box}=videoMapping();
+    const raw=measure(cam,sw,sh,res,box,true);
+    render(judge(raw.none?raw:smooth(raw),true));
+  }else if(landmarker==="failed"){vtext.textContent="Analyse indisponible : cadrez a l'aide de la grille.";vdot.className="dot warn";}
+  requestAnimationFrame(loop);
+}
+function render(c){
+  const fails=c.filter(x=>x.state!=="ok");
+  checksEl.innerHTML=fails.slice(0,6).map(x=>`<span class="chip ${x.state}">${x.advice}</span>`).join("")||`<span class="chip ok">Tous les criteres sont remplis</span>`;
+  const bad=c.filter(x=>x.state==="bad");
+  if(bad.length){stable=0;cancelCountdown();vdot.className="dot bad";vtext.textContent=bad[0].advice;}
+  else{stable++;vdot.className="dot ok";vtext.textContent=stable>10?"Pret. Ne bougez plus.":"Cadrage conforme";if(stable>14)armCountdown();}
+}
+function armCountdown(){if(countdown)return;let n=3;$("#timerBadge").textContent=n;
+  countdown=setInterval(()=>{n--;$("#timerBadge").textContent=n>0?n:"";if(n<=0){cancelCountdown();capture();}},700);}
+function cancelCountdown(){if(countdown){clearInterval(countdown);countdown=null;$("#timerBadge").textContent="";}}
+$("#btnShoot").onclick=()=>{cancelCountdown();capture();};
+$("#btnRetake").onclick=()=>location.reload();
+
+/* ---------- capture ---------- */
+async function capture(){
+  running=false;cancelCountdown();
+  const sw=cam.videoWidth,sh=cam.videoHeight;
+  const full=document.createElement("canvas");full.width=sw;full.height=sh;
+  full.getContext("2d").drawImage(cam,0,0,sw,sh);
+  let res=null;
+  if(landmarker&&landmarker!=="failed"){res=await landmarker.setOptions({runningMode:"IMAGE"}).then(()=>landmarker.detect(full));}
+  const{box}=videoMapping();
+  const m=measure(full,sw,sh,res,box,false);
+  const checks=judge(m,false);
+  const out=document.createElement("canvas");out.width=N.PX_W;out.height=N.PX_H;
+  const o=out.getContext("2d");o.imageSmoothingQuality="high";o.fillStyle="#fff";o.fillRect(0,0,N.PX_W,N.PX_H);
+  if(!m.none){
+    const g=m.g,cropH=g.headH/N.headTarget,cropW=cropH*35/45;
+    o.save();
+    // le recadrage redresse le roulis residuel autour du milieu des yeux
+    o.translate(N.PX_W/2,0);o.rotate(-g.roll*Math.PI/180);o.translate(-N.PX_W/2,0);
+    o.drawImage(full,g.cx-cropW/2,g.crown.y-cropH*N.topTarget,cropW,cropH,0,0,N.PX_W,N.PX_H);
+    o.restore();
+  }else{o.drawImage(full,box.x*sw,box.y*sh,box.w*sw,box.h*sh,0,0,N.PX_W,N.PX_H);}
+  stream.getTracks().forEach(t=>t.stop());
+  shot.src=full.toDataURL("image/jpeg",.95);shot.style.display="block";cam.style.display="none";
+  showReport(checks,out);
+}
+
+/* ---------- rapport ---------- */
+const GROUPS=[["Cadrage",["solo","size","center","top","eyeline","res","dist"]],
+  ["Pose et expression",["roll","yaw","pitch","eyes","gaze","mouth","neutral","specular"]],
+  ["Image et lumiere",["sharp","expo","clip","light"]],
+  ["Fond",["bgunif","bgedge","bglum","bgsat","bgshadow"]]];
+function showReport(checks,out){
+  const bad=checks.filter(c=>c.state==="bad"),warn=checks.filter(c=>c.state==="warn");
+  $("#scene").style.flex="0 0 32vh";guides.innerHTML="";checksEl.innerHTML="";
+  vdot.className="dot "+(bad.length?"bad":warn.length?"warn":"ok");
+  vtext.textContent=bad.length?`Non conforme, ${bad.length} critere(s) rejete(s)`:warn.length?`Conforme sous reserve, ${warn.length} point(s) a verifier`:"Conforme";
+  const by=id=>checks.find(c=>c.id===id);
+  report.style.display="block";
+  report.innerHTML=`<div id="crops">
+      <div><div id="ph"></div><div class="meta">35 × 45 mm, 413 × 531 px, 300 ppp</div></div>
+      <div style="flex:1">
+        <button id="btnDl" class="primary" style="width:100%;margin-bottom:8px">Enregistrer la photo</button>
+        <button id="btnPdf2" style="width:100%">Planche PDF 6 vignettes</button>
+      </div></div>
+    ${GROUPS.map(([t,ids])=>`<h2>${t}</h2>`+ids.map(i=>by(i)).filter(Boolean).map(c=>`<div class="row">
+        <span class="dot ${c.state}" style="margin-top:6px"></span>
+        <div><b>${c.label}</b>${c.state!=="ok"?`<em>${c.advice}</em>`:""}</div>
+        <span class="val">${c.val}</span></div>`).join("")).join("")}
+    <p class="mini">Non mesurable automatiquement : absence de couvre-chef, monture de lunettes ne masquant pas les yeux,
+    cheveux degageant le regard, photo de moins de six mois, tirage sur papier photo mat sans pliure.</p>`;
+  $("#ph").appendChild(out);
+  $("#btnRetake").classList.remove("hidden");$("#btnShoot").classList.add("hidden");$("#btnFlip").classList.add("hidden");
+  $("#btnDl").onclick=()=>{const a=document.createElement("a");a.download="photo-identite.jpg";a.href=out.toDataURL("image/jpeg",.95);a.click();};
+  $("#btnPdf2").onclick=()=>makePdf(out);
+}
+async function makePdf(canvas){
+  if(!window.jspdf){await new Promise((r,j)=>{const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";s.onload=r;s.onerror=j;document.head.appendChild(s);});}
+  const{jsPDF}=window.jspdf;const pdf=new jsPDF({unit:"mm",format:[100,150]});
+  const img=canvas.toDataURL("image/jpeg",.95),w=35,h=45,gx=6,gy=6;
+  const x0=(100-(2*w+gx))/2,y0=(150-(3*h+2*gy))/2;
+  for(let r=0;r<3;r++)for(let c=0;c<2;c++){const x=x0+c*(w+gx),y=y0+r*(h+gy);
+    pdf.addImage(img,"JPEG",x,y,w,h);pdf.setDrawColor(200);pdf.rect(x,y,w,h);}
+  pdf.save("planche-photos-identite.pdf");
+}
+</script>
+</body>
+</html>
