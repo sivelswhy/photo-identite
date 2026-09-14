@@ -116,6 +116,8 @@ const cam=$("#cam"),shot=$("#shot"),guides=$("#guides"),checksEl=$("#checks"),
       vdot=$("#vdot"),vtext=$("#vtext"),report=$("#report"),loader=$("#loader"),loadfill=$("#loadfill");
 let landmarker=null,stream=null,track=null,facing="environment",running=false,lastT=-1;
 let stable=0,countdown=null,prevSmall=null,prevStates={};
+const mirrored=()=>facing==="user";   // apercu en miroir, mesures sur l'image brute
+const LR=(a,b)=>mirrored()?[b,a]:[a,b];
 const hist=new Map();
 
 /* ---------- grille ---------- */
@@ -150,6 +152,7 @@ async function start(){
     track=stream.getVideoTracks()[0];
     try{await track.applyConstraints({advanced:[{focusMode:"continuous"},{whiteBalanceMode:"continuous"}]});}catch(e){}
     cam.srcObject=stream;await cam.play();
+    cam.style.transform=mirrored()?"scaleX(-1)":"none";
     $("#btnStart").classList.add("hidden");$("#btnShoot").classList.remove("hidden");$("#btnFlip").classList.remove("hidden");
     running=true;drawGuides();loop();
   }catch(e){vtext.textContent="Camera inaccessible. Verifiez l'autorisation dans Reglages, Safari, Camera.";vdot.className="dot bad";}
@@ -326,11 +329,11 @@ function judge(m,live){
     add(id,label,ok?"ok":"bad",v<mid?advLo:advHi,fmt(v));
   };
   band("size","Hauteur du visage",m.ratio,N.headMin,N.headMax,"Approchez-vous","Reculez",v=>(v*45).toFixed(1)+" mm");
-  band("center","Centrage horizontal",m.offX,-N.centerTol,N.centerTol,"Decalez vers la droite","Decalez vers la gauche",v=>(v*100).toFixed(1)+" %");
+  band("center","Centrage horizontal",m.offX,-N.centerTol,N.centerTol,...LR("Decalez vers la droite","Decalez vers la gauche"),v=>(v*100).toFixed(1)+" %");
   band("top","Marge au-dessus de la tete",m.topM,N.topMin,N.topMax,"Abaissez le telephone","Relevez le telephone",v=>(v*45).toFixed(1)+" mm");
   band("eyeline","Hauteur des yeux",m.eyeBot,N.eyeFromBottomMin,N.eyeFromBottomMax,"Yeux trop bas dans le cadre","Yeux trop hauts dans le cadre",v=>(v*100).toFixed(0)+" %");
   band("roll","Tete droite",m.roll,-N.rollTol,N.rollTol,"Redressez la tete","Redressez la tete",v=>v.toFixed(1)+" deg");
-  band("yaw","Visage de face",m.yaw,-N.yawTol,N.yawTol,"Tournez la tete vers la droite","Tournez la tete vers la gauche",v=>v.toFixed(1)+" deg");
+  band("yaw","Visage de face",m.yaw,-N.yawTol,N.yawTol,...LR("Tournez la tete vers la droite","Tournez la tete vers la gauche"),v=>v.toFixed(1)+" deg");
   band("pitch","Menton neutre",m.pitch,-N.pitchTol,N.pitchTol,"Relevez legerement le menton","Baissez legerement le menton",v=>v.toFixed(1)+" deg");
 
   add("eyes","Yeux ouverts",(m.ear>=N.earMin/hy("eyes")&&m.blink<.5)?"ok":"bad","Ouvrez bien les yeux",m.ear.toFixed(3));
@@ -409,7 +412,7 @@ async function capture(){
     o.restore();
   }else{o.drawImage(full,box.x*sw,box.y*sh,box.w*sw,box.h*sh,0,0,N.PX_W,N.PX_H);}
   stream.getTracks().forEach(t=>t.stop());
-  shot.src=full.toDataURL("image/jpeg",.95);shot.style.display="block";cam.style.display="none";
+  shot.src=full.toDataURL("image/jpeg",.95);shot.style.display="block";cam.style.display="none";cam.style.transform="none";
   showReport(checks,out);
 }
 
