@@ -117,7 +117,6 @@ const cam=$("#cam"),shot=$("#shot"),guides=$("#guides"),checksEl=$("#checks"),
 let landmarker=null,stream=null,track=null,facing="environment",running=false,lastT=-1;
 let stable=0,countdown=null,prevSmall=null,prevStates={};
 const mirrored=()=>facing==="user";   // apercu en miroir, mesures sur l'image brute
-const LR=(a,b)=>mirrored()?[b,a]:[a,b];
 const hist=new Map();
 
 /* ---------- grille ---------- */
@@ -207,7 +206,10 @@ function geom(lm,W,H){
     const g=(iris,e,c)=>{const w=Math.hypot(e.o.x-e.i.x,e.o.y-e.i.y)||1;return Math.hypot(iris.x-c.x,iris.y-c.y)/w;};
     gaze=(g(p(L.irisL),eL,cL)+g(p(L.irisR),eR,cR))/2;
   }
-  return {chin,fore,crown,headH,faceH,eyeMid,cL,cR,ipd,roll:a*180/Math.PI,
+  const chk1=p(L.cheekL),chk2=p(L.cheekR),nz=p(L.nose);
+  const xL=Math.min(chk1.x,chk2.x),xR=Math.max(chk1.x,chk2.x);
+  const yawSign=(nz.x-xL)-(xR-nz.x);   // <0 : nez decale vers la gauche de l'image
+  return {chin,fore,crown,headH,faceH,eyeMid,cL,cR,ipd,yawSign,roll:a*180/Math.PI,
     cx:axis.x,faceW:Math.abs(p(L.cheekR).x-p(L.cheekL).x),
     ear:(ear(eL)+ear(eR))/2,mar,gaze,v};
 }
@@ -296,7 +298,7 @@ function measure(src,sw,sh,res,box,live){
     offX:(g.cx-(B.x+B.w/2))/B.w,
     topM:((g.crown.y-B.y)/B.h),
     eyeBot:(B.y+B.h-g.eyeMid.y)/B.h,
-    roll:g.roll,yaw:e.yaw,pitch:e.pitch,
+    roll:g.roll,yaw:e.yaw,pitch:e.pitch,yawSign:g.yawSign,
     ear:g.ear,gaze:g.gaze,mar:g.mar,
     smile:Math.max(bs.mouthSmileLeft||0,bs.mouthSmileRight||0,bs.mouthPucker||0),
     blink:Math.max(bs.eyeBlinkLeft||0,bs.eyeBlinkRight||0),
@@ -328,18 +330,23 @@ function judge(m,live){
     const ok=v>=mid-half&&v<=mid+half;
     add(id,label,ok?"ok":"bad",v<mid?advLo:advHi,fmt(v));
   };
-  band("size","Hauteur du visage",m.ratio,N.headMin,N.headMax,"Approchez-vous","Reculez",v=>(v*45).toFixed(1)+" mm");
-  band("center","Centrage horizontal",m.offX,-N.centerTol,N.centerTol,...LR("Decalez vers la droite","Decalez vers la gauche"),v=>(v*100).toFixed(1)+" %");
-  band("top","Marge au-dessus de la tete",m.topM,N.topMin,N.topMax,"Abaissez le telephone","Relevez le telephone",v=>(v*45).toFixed(1)+" mm");
-  band("eyeline","Hauteur des yeux",m.eyeBot,N.eyeFromBottomMin,N.eyeFromBottomMax,"Yeux trop bas dans le cadre","Yeux trop hauts dans le cadre",v=>(v*100).toFixed(0)+" %");
-  band("roll","Tete droite",m.roll,-N.rollTol,N.rollTol,"Redressez la tete","Redressez la tete",v=>v.toFixed(1)+" deg");
-  band("yaw","Visage de face",m.yaw,-N.yawTol,N.yawTol,...LR("Tournez la tete vers la droite","Tournez la tete vers la gauche"),v=>v.toFixed(1)+" deg");
-  band("pitch","Menton neutre",m.pitch,-N.pitchTol,N.pitchTol,"Relevez legerement le menton","Baissez legerement le menton",v=>v.toFixed(1)+" deg");
+  band("size","Hauteur du visage",m.ratio,N.headMin,N.headMax,"Approchez-vous du sujet","Reculez",v=>(v*45).toFixed(1)+" mm");
+  // deplacer l'appareil d'un cote ramene le sujet vers le centre du cadre : consigne physique, donc valable avec ou sans miroir
+  band("center","Centrage horizontal",m.offX,-N.centerTol,N.centerTol,"Deplacez l'appareil vers la gauche","Deplacez l'appareil vers la droite",v=>(v*100).toFixed(1)+" %");
+  band("top","Marge au-dessus de la tete",m.topM,N.topMin,N.topMax,"Relevez l'appareil","Abaissez l'appareil",v=>(v*45).toFixed(1)+" mm");
+  band("eyeline","Hauteur des yeux",m.eyeBot,N.eyeFromBottomMin,N.eyeFromBottomMax,"Abaissez l'appareil","Relevez l'appareil",v=>(v*100).toFixed(0)+" %");
+  // rotations : amplitude donnee par le modele, sens deduit de la geometrie de l'image
+  add("roll","Tete droite",Math.abs(m.roll)<=N.rollTol*hy("roll")?"ok":"bad",
+      "La tete penche vers sa "+(m.roll>0?"gauche":"droite")+", redressez-la",m.roll.toFixed(1)+" deg");
+  add("yaw","Visage de face",Math.abs(m.yaw)<=N.yawTol*hy("yaw")?"ok":"bad",
+      "Faites tourner la tete vers sa "+(m.yawSign<0?"gauche":"droite"),m.yaw.toFixed(1)+" deg");
+  add("pitch","Menton horizontal",Math.abs(m.pitch)<=N.pitchTol*hy("pitch")?"ok":"bad",
+      "Tenez l'appareil a hauteur des yeux, menton ni leve ni baisse",m.pitch.toFixed(1)+" deg");
 
-  add("eyes","Yeux ouverts",(m.ear>=N.earMin/hy("eyes")&&m.blink<.5)?"ok":"bad","Ouvrez bien les yeux",m.ear.toFixed(3));
-  add("gaze","Regard vers l'objectif",m.gaze<=N.gazeTol*hy("gaze")?"ok":"bad","Fixez l'objectif, pas l'ecran",m.gaze.toFixed(3));
-  add("mouth","Bouche fermee",m.mar<=N.marMax*hy("mouth")?"ok":"bad","Fermez la bouche",m.mar.toFixed(3));
-  add("neutral","Expression neutre",m.smile<=N.smileMax*hy("neutral")?"ok":"bad","Ne souriez pas",m.smile.toFixed(2));
+  add("eyes","Yeux ouverts",(m.ear>=N.earMin/hy("eyes")&&m.blink<.5)?"ok":"bad","Le sujet doit ouvrir les yeux",m.ear.toFixed(3));
+  add("gaze","Regard vers l'objectif",m.gaze<=N.gazeTol*hy("gaze")?"ok":"bad","Le sujet doit fixer l'objectif",m.gaze.toFixed(3));
+  add("mouth","Bouche fermee",m.mar<=N.marMax*hy("mouth")?"ok":"bad","Le sujet doit fermer la bouche",m.mar.toFixed(3));
+  add("neutral","Expression neutre",m.smile<=N.smileMax*hy("neutral")?"ok":"bad","Expression neutre, sans sourire",m.smile.toFixed(2));
 
   add("sharp","Nettete",m.sharp>=N.sharpMin/hy("sharp")?"ok":"bad","Mise au point insuffisante",Math.round(m.sharp));
   if(live)add("motion","Stabilite",m.motion<=N.motionMax*hy("motion")?"ok":"bad","Ne bougez plus",m.motion.toFixed(1));
