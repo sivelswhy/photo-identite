@@ -115,7 +115,7 @@ const $=s=>document.querySelector(s);
 const cam=$("#cam"),shot=$("#shot"),guides=$("#guides"),checksEl=$("#checks"),
       vdot=$("#vdot"),vtext=$("#vtext"),report=$("#report"),loader=$("#loader"),loadfill=$("#loadfill");
 let landmarker=null,stream=null,track=null,facing="environment",running=false,lastT=-1;
-let stable=0,countdown=null,prevSmall=null,prevStates={};
+let stable=0,countdown=null,prevSmall=null,prevStates={},repaint=null;
 const mirrored=()=>facing==="user";   // apercu en miroir, mesures sur l'image brute
 const hist=new Map();
 
@@ -409,20 +409,33 @@ async function capture(){
   const m=measure(full,sw,sh,res,box,false);
   const checks=judge(m,false);
   const out=document.createElement("canvas");out.width=N.PX_W;out.height=N.PX_H;
-  const o=out.getContext("2d");o.imageSmoothingQuality="high";o.fillStyle="#fff";o.fillRect(0,0,N.PX_W,N.PX_H);
-  if(!m.none){
-    const g=m.g,cropH=g.headH/N.headTarget,cropW=cropH*35/45,k=N.PX_W/cropW;
-    // centre du recadrage pris sur l'axe median de la tete, a mi-hauteur du cadre,
-    // puis rotation inverse du roulis : la ligne des yeux devient horizontale
-    const cX=g.crown.x+g.v.x*cropH*.5, cY=g.crown.y+g.v.y*cropH*.5;
-    o.save();
-    o.translate(N.PX_W/2,N.PX_H/2);
-    o.rotate(-g.roll*Math.PI/180);
-    o.scale(k,k);
-    o.translate(-cX,-cY);
-    o.drawImage(full,0,0);
-    o.restore();
-  }else{o.drawImage(full,box.x*sw,box.y*sh,box.w*sw,box.h*sh,0,0,N.PX_W,N.PX_H);}
+  const o=out.getContext("2d");o.imageSmoothingQuality="high";
+  let mir=mirrored();   // la photo livree suit l'apercu : miroir sur la camera frontale
+  function paint(){
+    o.setTransform(1,0,0,1,0,0);o.fillStyle="#fff";o.fillRect(0,0,N.PX_W,N.PX_H);
+    if(!m.none){
+      const g=m.g,cropH=g.headH/N.headTarget,cropW=cropH*35/45,k=N.PX_W/cropW;
+      // centre du recadrage pris sur l'axe median de la tete, a mi-hauteur du cadre,
+      // miroir eventuel, puis rotation inverse du roulis : la ligne des yeux devient horizontale
+      const cX=g.crown.x+g.v.x*cropH*.5, cY=g.crown.y+g.v.y*cropH*.5;
+      o.save();
+      o.translate(N.PX_W/2,N.PX_H/2);
+      if(mir)o.scale(-1,1);
+      o.rotate(-g.roll*Math.PI/180);
+      o.scale(k,k);
+      o.translate(-cX,-cY);
+      o.drawImage(full,0,0);
+      o.restore();
+    }else{
+      o.save();
+      if(mir){o.translate(N.PX_W,0);o.scale(-1,1);}
+      o.drawImage(full,box.x*sw,box.y*sh,box.w*sw,box.h*sh,0,0,N.PX_W,N.PX_H);
+      o.restore();
+    }
+    shot.style.transform=mir?"scaleX(-1)":"none";
+  }
+  paint();
+  repaint=()=>{mir=!mir;paint();};
   stream.getTracks().forEach(t=>t.stop());
   shot.src=full.toDataURL("image/jpeg",.95);shot.style.display="block";cam.style.display="none";cam.style.transform="none";
   showReport(checks,out);
@@ -444,7 +457,8 @@ function showReport(checks,out){
       <div><div id="ph"></div><div class="meta">35 × 45 mm, 413 × 531 px, 300 ppp</div></div>
       <div style="flex:1">
         <button id="btnDl" class="primary" style="width:100%;margin-bottom:8px">Enregistrer la photo</button>
-        <button id="btnPdf2" style="width:100%">Planche PDF 6 vignettes</button>
+        <button id="btnPdf2" style="width:100%;margin-bottom:8px">Planche PDF 6 vignettes</button>
+        <button id="btnMir" style="width:100%">Inverser le sens</button>
       </div></div>
     ${GROUPS.map(([t,ids])=>`<h2>${t}</h2>`+ids.map(i=>by(i)).filter(Boolean).map(c=>`<div class="row">
         <span class="dot ${c.state}" style="margin-top:6px"></span>
@@ -456,6 +470,7 @@ function showReport(checks,out){
   $("#btnRetake").classList.remove("hidden");$("#btnShoot").classList.add("hidden");$("#btnFlip").classList.add("hidden");
   $("#btnDl").onclick=()=>{const a=document.createElement("a");a.download="photo-identite.jpg";a.href=out.toDataURL("image/jpeg",.95);a.click();};
   $("#btnPdf2").onclick=()=>makePdf(out);
+  $("#btnMir").onclick=()=>repaint&&repaint();
 }
 async function makePdf(canvas){
   if(!window.jspdf){await new Promise((r,j)=>{const s=document.createElement("script");
